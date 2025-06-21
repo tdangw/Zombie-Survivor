@@ -245,6 +245,11 @@ canvas.addEventListener('click', shoot);
 document.addEventListener('keydown', e => {
   if (e.code === 'Space') shoot();
 });
+let touchStartX = null;
+let touchStartY = null;
+let touchMoveX = null;
+let touchMoveY = null;
+
 
 let levelUpGlowTime = 0;
 
@@ -258,6 +263,26 @@ let bladeTimer = 0;
 
 let explosions = [];
 player.hitTimer = 0;
+
+canvas.addEventListener("touchstart", e => {
+  const touch = e.touches[0];
+  touchStartX = touch.clientX;
+  touchStartY = touch.clientY;
+});
+
+canvas.addEventListener("touchmove", e => {
+  const touch = e.touches[0];
+  touchMoveX = touch.clientX;
+  touchMoveY = touch.clientY;
+  e.preventDefault(); // ngăn cuộn trang
+});
+
+canvas.addEventListener("touchend", () => {
+  touchStartX = null;
+  touchStartY = null;
+  touchMoveX = null;
+  touchMoveY = null;
+});
 
 function updateUI() {
 const highScore = Math.max(player.score, parseInt(localStorage.getItem('highScore') || '0'));
@@ -508,6 +533,19 @@ if (moveX !== 0 || moveY !== 0) {
   moveY /= length;
   player.x += moveX * player.speed;
   player.y += moveY * player.speed;
+}
+
+// === Xử lý điều khiển cảm ứng ===
+if (touchStartX !== null && touchMoveX !== null) {
+  let dx = touchMoveX - touchStartX;
+  let dy = touchMoveY - touchStartY;
+  const len = Math.hypot(dx, dy);
+  if (len > 10) { // chỉ di chuyển nếu vuốt đủ lớn
+    dx /= len;
+    dy /= len;
+    player.x += dx * player.speed;
+    player.y += dy * player.speed;
+  }
 }
 
 
