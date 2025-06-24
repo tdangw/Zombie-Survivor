@@ -141,19 +141,18 @@ button.active {
   transform: translateY(-0.06rem);
 }
 </style>
-
 </head>
 <body>
-  <div id="ui">
+<div id="ui">
 <div class="tooltip-container">
   <button id="autoBtn">⚙️ Auto</button>
-  <span class="tooltip-text">⚙️ Auto: Tự động tấn công zombie gần nhất khi bật</span>
+  <span class="tooltip-text">⚙️ Auto:
+    - Tự động tấn công zombie gần nhất</span>
 </div>
 
 <div class="tooltip-container">
   <button id="bladeBtn">🔪 Đao</button>
-  <span class="tooltip-text">
-    🔪 Kỹ năng Đao:
+  <span class="tooltip-text">🔪 Kỹ năng Đao:
     - Mỗi 2s tạo 1 đao xoay quanh
     - Bay vào zombie gần nhất
     - Yêu cầu level 1
@@ -164,8 +163,7 @@ button.active {
 
 <div class="tooltip-container">
   <button id="swordBtn">⚔️ Kiếm</button>
-  <span class="tooltip-text">
-    ⚔️ Kỹ năng Kiếm:
+  <span class="tooltip-text">⚔️ Kỹ năng Kiếm:
     - Mỗi 2s tạo 1 kiếm từ trên cao
     - Bay vào zombie gần nhất
     - Yêu cầu level 3
@@ -176,8 +174,7 @@ button.active {
 
 <div class="tooltip-container">
   <button id="fireBtn">🔥 Lửa</button>
-  <span class="tooltip-text">
-    🔥 Kỹ năng Lửa:
+  <span class="tooltip-text">🔥 Kỹ năng Lửa:
     - Tạo 2 quả cầu lửa quay quanh
     - Tiêu diệt zombie chạm vào
     - Yêu cầu level 5
@@ -188,14 +185,12 @@ button.active {
 
 <div class="tooltip-container">
   <button id="iceBtn">❄️ Băng</button>
-  <span class="tooltip-text">
-    ❄️ Kỹ năng Băng (mở khóa Lv10):
+  <span class="tooltip-text">❄️ Kỹ năng Băng (mở khóa Lv10):
     - Tạo 4 quả cầu băng lớn xoay quanh
     - Gây sát thương diện rộng
     - Yêu cầu level 10
     ⏱ Hiệu lực: 30s
     ⚡ Tiêu hao: 8
-
   </span>
 </div>
 
@@ -205,19 +200,201 @@ button.active {
 </div>  </div>
 <canvas id="game" width="960" height="720"></canvas>
 
-  <script>
-    const canvas = document.getElementById("game");
-    const ctx = canvas.getContext("2d");
+<script>
+//🧱 1. Biến toàn cục – Cấu hình – Canvas
+// 🔧 Khởi tạo canvas và context
+const canvas = document.getElementById("game");
+const ctx = canvas.getContext("2d");
 
-    const player = { x: 400, y: 300, size: 20, speed: 2, hearts: 3, energy: 0, level: 1, score: 0 };
-    const zombies = [], bullets = [], fireballs = [], iceballs = [], items = [], swords = [], downwardSwords = [];
-    let keys = {}, autoShoot = false, fireActive = false, iceActive = false;
-    let fireTimer = 0, iceTimer = 0, frame = 0, gameOver = false;
+// 👤 Trạng thái người chơi
+const player = {
+  x: 400, y: 300, size: 20, speed: 2,
+  hearts: 3, energy: 1000, level: 11, score: 0,
+  hitTimer: 0
+};
 
-    document.addEventListener("keydown", e => keys[e.key.toLowerCase()] = true);
-    document.addEventListener("keyup", e => keys[e.key.toLowerCase()] = false);
-    
-    function showWarning(message) {
+// 🧟 Danh sách đối tượng trong game
+let zombies = [];
+let bullets = [];
+let swords = [];
+let fireballs = [];
+let iceballs = [];
+
+let items = [];
+const downwardSwords = [];
+const explosions = [];
+
+// ⚙️ Trạng thái điều khiển
+let keys = {}, autoShoot = false;
+let fireActive = false, iceActive = false;
+let swordActive = false, bladeActive = false;
+let frame = 0, gameOver = false;
+
+// ⏱ Thời gian kỹ năng
+let fireTimer = 0, iceTimer = 0;
+let fireEndTime = 0, iceEndTime = 0;
+let swordEndTime = 0, swordTimer = 0;
+let bladeEndTime = 0, bladeTimer = 0;
+let levelUpGlowTime = 0;
+
+// 📱 Điều khiển cảm ứng
+let touchStartX = null, touchStartY = null;
+let touchMoveX = null, touchMoveY = null;
+
+// 🌀 Các pool tái sử dụng object (Object Pooling)
+const bulletPool = [];
+const explosionPool = [];
+const zombiePool = [];
+
+//📲 2. Sự kiện điều khiển bàn phím, chuột, cảm ứng
+// ⌨️ Bàn phím di chuyển
+document.addEventListener("keydown", e => keys[e.key.toLowerCase()] = true);
+document.addEventListener("keyup", e => keys[e.key.toLowerCase()] = false);
+
+// 🖱 Click chuột để bắn
+canvas.addEventListener("click", shoot);
+document.addEventListener("keydown", e => {
+  if (e.code === 'Space') shoot();
+});
+
+// 📱 Điều khiển cảm ứng
+canvas.addEventListener("touchstart", e => {
+  const touch = e.touches[0];
+  touchStartX = touch.clientX;
+  touchStartY = touch.clientY;
+});
+canvas.addEventListener("touchmove", e => {
+  const touch = e.touches[0];
+  touchMoveX = touch.clientX;
+  touchMoveY = touch.clientY;
+  e.preventDefault(); // ngăn cuộn trang
+});
+canvas.addEventListener("touchend", () => {
+  touchStartX = null;
+  touchStartY = null;
+  touchMoveX = null;
+  touchMoveY = null;
+});
+
+//💥 3. Hàm hỗ trợ tiện ích
+function distance(a, b) {
+return Math.hypot(a.x - b.x, a.y - b.y);}
+
+function dropItem(x, y) {
+const dropRate = 0.05; // 📉 5% rơi item (1 trong 20 zombie tiêu diệt)
+
+  if (Math.random() < dropRate) {
+    // 📦 Rơi lệch nhẹ quanh vị trí zombie
+    const offsetX = (Math.random() - 0.5) * 30;
+    const offsetY = (Math.random() - 0.5) * 30;
+
+    const safeX = Math.min(canvas.width - 20, Math.max(20, x + offsetX));
+    const safeY = Math.min(canvas.height - 20, Math.max(20, y + offsetY));
+
+    items.push({ x: safeX, y: safeY, active: true });
+  }
+}
+
+// 🔁 Bullet Pooling
+function getBullet() {
+  return bulletPool.length ? bulletPool.pop() : { x: 0, y: 0, dx: 0, dy: 0, active: true };
+}
+function releaseBullet(bullet) {
+  bullet.active = false;
+  bulletPool.push(bullet);
+}
+
+// 💥 Explosion Pooling
+function getExplosion(x, y) {
+  const e = explosionPool.length ? explosionPool.pop() : { x: 0, y: 0, radius: 0, life: 0, active: true };
+  e.x = x;
+  e.y = y;
+  e.radius = 0;
+  e.life = 20;
+  e.active = true;
+  return e;
+}
+function releaseExplosion(e) {
+  e.active = false;
+  explosionPool.push(e);
+}
+
+// 🧟 Zombie Pooling
+function getZombie() {
+  return zombiePool.length
+    ? zombiePool.pop()
+    : {
+        x: 0,
+        y: 0,
+        radius: 15,
+        canHit: true,
+        speed: 1,
+        color: "hotpink",
+        isBoss: false,
+        hp: 1,
+        active: true
+      };
+}
+
+function releaseZombie(z) {
+  z.active = false;
+  zombiePool.push(z);
+}
+
+// 🔪 Sword Pooling
+const swordPool = [];
+
+function getSword() {
+  return swordPool.length ? swordPool.pop() : {
+    angle: 0,
+    radius: 60,
+    state: 'charging',
+    chargeFrame: 90,
+    x: 0,
+    y: 0,
+    target: null,
+    fireDelay: 0,
+    delay: 60
+  };
+}
+
+function releaseSword(s) {
+  swordPool.push(s);
+}
+
+// 🔥 Fireball Pooling
+const fireballPool = [];
+
+function getFireball() {
+  return fireballPool.length ? fireballPool.pop() : {
+    angle: 0,
+    radius: 40,
+    x: 0,
+    y: 0
+  };
+}
+
+function releaseFireball(f) {
+  fireballPool.push(f);
+}
+
+// ❄️ Iceball Pooling
+const iceballPool = [];
+
+function getIceball() {
+  return iceballPool.length ? iceballPool.pop() : {
+    angle: 0,
+    radius: 60,
+    x: 0,
+    y: 0
+  };
+}
+
+function releaseIceball(i) {
+  iceballPool.push(i);
+}
+
+function showWarning(message) {
   const popup = document.createElement("div");
   popup.innerText = message;
   popup.style = `
@@ -236,76 +413,37 @@ button.active {
     font-family: 'Segoe UI', sans-serif;
   `;
   document.body.appendChild(popup);
-  setTimeout(() => popup.remove(), 1000);
+  setTimeout(() => popup.remove(), 1000);}
+
+function generateGradient(index) {
+  const hue1 = (index * 137) % 360;
+  const hue2 = (hue1 + 60) % 360;
+  return `radial-gradient(circle at center, hsl(${hue1}, 70%, 50%), hsl(${hue2}, 40%, 20%))`;}
+
+//🔫 4. Bắn đạn & auto shoot
+function shoot() {
+  if (zombies.length === 0) return;
+  const target = zombies.reduce((a, b) => (distance(a, player) < distance(b, player) ? a : b));
+  const angle = Math.atan2(target.y - player.y, target.x - player.x);
+
+  const b = getBullet();
+  b.x = player.x;
+  b.y = player.y;
+  b.dx = Math.cos(angle) * 3;
+  b.dy = Math.sin(angle) * 3;
+  b.active = true;
+
+  bullets.push(b);
 }
 
-
-// Bắn thủ công bằng click hoặc phím Space
-canvas.addEventListener('click', shoot);
-document.addEventListener('keydown', e => {
-  if (e.code === 'Space') shoot();
-});
-let touchStartX = null;
-let touchStartY = null;
-let touchMoveX = null;
-let touchMoveY = null;
-
-
-let levelUpGlowTime = 0;
-
-    let swordActive = false;
-let swordEndTime = 0;
-let swordTimer = 0;
-
-let bladeActive = false;
-let bladeEndTime = 0;
-let bladeTimer = 0;
-
-let explosions = [];
-player.hitTimer = 0;
-
-canvas.addEventListener("touchstart", e => {
-  const touch = e.touches[0];
-  touchStartX = touch.clientX;
-  touchStartY = touch.clientY;
-});
-
-canvas.addEventListener("touchmove", e => {
-  const touch = e.touches[0];
-  touchMoveX = touch.clientX;
-  touchMoveY = touch.clientY;
-  e.preventDefault(); // ngăn cuộn trang
-});
-
-canvas.addEventListener("touchend", () => {
-  touchStartX = null;
-  touchStartY = null;
-  touchMoveX = null;
-  touchMoveY = null;
-});
-
-function updateUI() {
-const highScore = Math.max(player.score, parseInt(localStorage.getItem('highScore') || '0'));
-localStorage.setItem('highScore', highScore);
-document.getElementById("score-top").innerText = `Điểm: ${player.score} | Kỷ lục: ${highScore} | ❤️: ${player.hearts}`;
-  document.getElementById("score-bottom").innerText = `Lv: ${player.level} | ⚡: ${player.energy}`;
-}
-
-    function shoot() {
-      if (zombies.length === 0) return;
-      const target = zombies.reduce((a, b) => (distance(a, player) < distance(b, player) ? a : b));
-      const angle = Math.atan2(target.y - player.y, target.x - player.x);
-      bullets.push({ x: player.x, y: player.y, dx: Math.cos(angle)*3, dy: Math.sin(angle)*3 });
-    }
+//⚔️ 5. Kích hoạt kỹ năng (Kích hoạt kỹ năng & gán nút)
 function activateSwordSkill() {
   if (!swordActive && player.energy >= 6) {
     swordActive = true;
     swordEndTime = Date.now() + 30000;
     swordTimer = 0;
     player.energy -= 6;
-    document.getElementById("bladeBtn").classList.add("active");
-  }
-}
+    document.getElementById("bladeBtn").classList.add("active");}}
 
 function activateDownwardSwords() {
   if (!bladeActive && player.energy >= 6) {
@@ -313,46 +451,155 @@ function activateDownwardSwords() {
     bladeEndTime = Date.now() + 30000;
     bladeTimer = 0;
     player.energy -= 6;
-    document.getElementById("swordBtn").classList.add("active");
+    document.getElementById("swordBtn").classList.add("active");}}
+
+// 🖱 Gán sự kiện nút
+document.getElementById("bladeBtn").onclick = () => {
+  if (player.level < 1) return showWarning("🔪 Cần Lv1 để dùng Đao");
+  activateSwordSkill();};
+
+document.getElementById("swordBtn").onclick = () => {
+  if (player.level < 3) return showWarning("⚔️ Cần Lv3 để dùng Kiếm");
+  activateDownwardSwords();};
+
+document.getElementById("fireBtn").onclick = () => {
+  if (player.level < 5) {
+    showWarning("🔥 Cần Lv5 để dùng Lửa");
+    return;
   }
+  if (!fireActive && player.energy >= 5) {
+    fireActive = true;
+    fireballs.length = 0;
+const fireCount = 4;
+for (let i = 0; i < fireCount; i++) {
+  const angle = (2 * Math.PI / fireCount) * i;
+  const f = getFireball();
+  f.angle = angle;
+  f.radius = 40;
+  f.x = player.x + Math.cos(angle) * 40;
+  f.y = player.y + Math.sin(angle) * 40;
+  fireballs.push(f);
 }
 
+    fireEndTime = Date.now() + 30000;
+    player.energy -= 5;
+    const btn = document.getElementById("fireBtn");
+    btn.classList.add("active");
+  }
+};
 
+document.getElementById("iceBtn").onclick = () => {
+if (player.level < 10) return showWarning("❄️ Cần Lv10 để dùng Băng");
+if (!iceActive && player.energy >= 8) {
+    iceActive = true;
+  iceballs.length = 0;
+const iceCount = 6;
+for (let i = 0; i < iceCount; i++) {
+  const angle = (2 * Math.PI / iceCount) * i;
+  const iBall = getIceball();
+  iBall.angle = angle;
+  iBall.radius = 60;
+  iBall.x = player.x + Math.cos(angle) * 60;
+  iBall.y = player.y + Math.sin(angle) * 60;
+  iceballs.push(iBall);
+}
 
+    iceEndTime = Date.now() + 30000;
+    player.energy -= 8;
+    const btn = document.getElementById("iceBtn");
+    btn.classList.add("active");
+  }
+};
+document.getElementById("autoBtn").onclick = () => {
+  autoShoot = !autoShoot;
+  const btn = document.getElementById("autoBtn");
+  if (autoShoot) {
+    btn.classList.add("active");
+  } else {
+    btn.classList.remove("active");
+  }
+};
 
-    function spawnZombie() {
-  let x, y;
+//🧟 6. Sinh zombie và boss
+  function spawnZombie() {
+  const z = getZombie();
+
   const side = Math.floor(Math.random() * 4);
-  if (side === 0) { x = -20; y = Math.random() * canvas.height; }
-  else if (side === 1) { x = canvas.width + 20; y = Math.random() * canvas.height; }
-  else if (side === 2) { x = Math.random() * canvas.width; y = -20; }
-  else { x = Math.random() * canvas.width; y = canvas.height + 20; }
+  if (side === 0) { z.x = -20; z.y = Math.random() * canvas.height; }
+  else if (side === 1) { z.x = canvas.width + 20; z.y = Math.random() * canvas.height; }
+  else if (side === 2) { z.x = Math.random() * canvas.width; z.y = -20; }
+  else { z.x = Math.random() * canvas.width; z.y = canvas.height + 20; }
 
-  const speed = 0.5 + Math.random() * 1.5;
+  z.radius = 15;
+  z.canHit = true;
+  z.speed = 0.5 + Math.random() * 1.5;
+  z.isBoss = false;
+  z.hp = 1;
+  z.active = true;
 
-  // Màu sắc thay đổi theo thời gian chơi và sau khi gặp boss
   const baseColors = ["hotpink", "lime", "cyan"];
   const extendedColors = ["orange", "violet", "yellow", "aqua", "white"];
   const colorPool = player.level >= 2 ? baseColors.concat(extendedColors) : baseColors;
-  const color = colorPool[Math.floor(Math.random() * colorPool.length)];
+  z.color = colorPool[Math.floor(Math.random() * colorPool.length)];
 
-  zombies.push({ x, y, radius: 15, canHit: true, speed, color });
+  zombies.push(z);
 }
 
+function spawnBoss() {
+  const z = getZombie();
 
-    function distance(a, b) {
-      return Math.hypot(a.x - b.x, a.y - b.y);
-    }
+  const side = Math.floor(Math.random() * 4);
+  if (side === 0) { z.x = -40; z.y = Math.random() * canvas.height; }
+  else if (side === 1) { z.x = canvas.width + 40; z.y = Math.random() * canvas.height; }
+  else if (side === 2) { z.x = Math.random() * canvas.width; z.y = -40; }
+  else { z.x = Math.random() * canvas.width; z.y = canvas.height + 40; }
 
-    function dropItem(x, y) {
-      if (Math.random() < 0.3) items.push({ x, y });
-    }
+  z.radius = 30;
+  z.canHit = true;
+  z.speed = 0.4 + Math.random();
+  z.isBoss = true;
+  z.hp = 5;
+  z.color = "red";
+  z.active = true;
 
- let fireEndTime = 0;
-let iceEndTime = 0;
+  zombies.push(z);
+}
 
-  function update() {
-  // Xử lý kỹ năng Đao 🔪 tự tạo liên tục trong 30s
+//🧠 7. Cập nhật UI – chỉ DOM
+let lastScore = -1, lastLevel = -1, lastEnergy = -1, lastHearts = -1, lastHighScore = -1;
+
+function updateUI() {
+  const highScore = Math.max(player.score, parseInt(localStorage.getItem('highScore') || '0'));
+  if (player.score > highScore) {
+    localStorage.setItem('highScore', player.score);
+  }
+
+  if (
+    player.score !== lastScore ||
+    player.hearts !== lastHearts ||
+    highScore !== lastHighScore
+  ) {
+    lastScore = player.score;
+    lastHearts = player.hearts;
+    lastHighScore = highScore;
+    document.getElementById("score-top").innerText =
+      `Điểm: ${player.score} | Kỷ lục: ${highScore} | ❤️: ${player.hearts}`;
+  }
+
+  if (
+    player.level !== lastLevel ||
+    player.energy !== lastEnergy
+  ) {
+    lastLevel = player.level;
+    lastEnergy = player.energy;
+    document.getElementById("score-bottom").innerText =
+      `Lv: ${player.level} | ⚡: ${player.energy}`;
+  }
+}
+
+//🔄 8. Cập nhật logic game (Main loop logic)
+function update() {
+// Xử lý kỹ năng Đao 🔪 tự tạo liên tục trong 30s
 if (swordActive) {
   if (Date.now() >= swordEndTime) {
     swordActive = false;
@@ -365,28 +612,26 @@ if (swordActive) {
 
     // Tạo từng đao mỗi 2s nếu chưa đủ
     if (swords.filter(s => s.state === 'charging').length < 5 && swordTimer++ > 120) {
-      swordTimer = 0;
-      const angle = Math.random() * Math.PI * 2;
-      swords.push({
-        angle,
-        radius: 60,
-        state: 'charging',
-        chargeFrame: 90,
-        x: player.x,
-        y: player.y,
-        target: null,
-        fireDelay: 0
-      });
-    }
+  swordTimer = 0;
+  const angle = Math.random() * Math.PI * 2;
+  const s = getSword();
+  s.angle = angle;
+  s.radius = 60;
+  s.state = 'charging';
+  s.chargeFrame = 90;
+  s.x = player.x;
+  s.y = player.y;
+  s.target = null;
+  s.fireDelay = 0;
+  swords.push(s);
+}
 
     // Chuyển sang readyToFire nếu đã đủ 5 và tất cả đều hết charge
     if (
       swords.length === 5 &&
       swords.every(s => s.state === 'charging' && s.chargeFrame <= 0)
-      
     )
     {
-
       swords.forEach((s, i) => {
         s.state = 'readyToFire';
         s.fireDelay = i * 30; // delay bắn từng cái
@@ -394,8 +639,6 @@ if (swordActive) {
     }
   }
 }
-
-
 swords.forEach((s, si) => {
   if (s.state === 'charging') {
     s.chargeFrame--;
@@ -404,12 +647,10 @@ swords.forEach((s, si) => {
     s.y = player.y + Math.sin(s.angle) * s.radius;
 
     // Vẫn cho phép tiêu diệt zombie khi đang xoay
-zombies.forEach((z, zi) => {
-  if (distance(s, z) < 20) { // dùng `s` thay vì `b`
-
+  zombies.forEach((z, zi) => {
+  if (distance(s, z) < 20) { 
   explosions.push({ x: z.x, y: z.y, radius: 0, life: 20 });
-
-if (z.isBoss) {
+  if (z.isBoss) {
   z.hp--;
   if (z.hp <= 0) {
     zombies.splice(zi, 1);
@@ -421,20 +662,17 @@ else {
   zombies.splice(zi, 1);
   player.score++;
   dropItem(z.x, z.y);
-}
-
-}
-
+}}
 });
-
-  } else if (s.state === 'readyToFire') {
+}
+  else if (s.state === 'readyToFire') {
     s.fireDelay--;
     if (s.fireDelay <= 0) {
       s.state = 'flying';
       if (zombies.length > 0)
         s.target = zombies[Math.floor(Math.random() * zombies.length)];
-    }
-  } else if (s.state === 'flying') {
+    }}
+  else if (s.state === 'flying') {
     if (!s.target) return;
     const dx = s.target.x - s.x;
     const dy = s.target.y - s.y;
@@ -446,24 +684,22 @@ else {
       swords.splice(si, 1);
       player.score++;
       dropItem(s.target.x, s.target.y);
-              explosions.push({ x: s.target.x, y: s.target.y, radius: 0, life: 20 }); // Va chạm với zombie
-
-    }
-  }
+      explosions.push({ x: s.target.x, y: s.target.y, radius: 0, life: 20 }); // Va chạm với zombie
+    }}
 });
 
 // Cập nhật kỹ năng kiếm
 // === XỬ LÝ KỸ NĂNG KIẾM (từ trên cao) ===
-if (bladeActive) {
+  if (bladeActive) {
   if (Date.now() >= bladeEndTime) {
     bladeActive = false;
     downwardSwords.length = 0;
     document.getElementById("swordBtn").classList.remove("active");
     document.getElementById("swordBtn").innerText = "⚔️ Kiếm";
-  } else {
+  }
+  else {
     const remain = Math.ceil((bladeEndTime - Date.now()) / 1000);
     document.getElementById("swordBtn").innerText = `⚔️ ${remain}s`;
-
     if (downwardSwords.length < 5 && bladeTimer++ > 120) {
       bladeTimer = 0;
       const spacing = canvas.width / 6;
@@ -477,7 +713,6 @@ if (bladeActive) {
         fireDelay: 0
       });
     }
-
     if (downwardSwords.length === 5 && downwardSwords.every(s => s.state === 'charging' && s.chargeFrame <= 0)) {
       downwardSwords.forEach((s, i) => {
         s.state = 'readyToFire';
@@ -497,7 +732,8 @@ downwardSwords.forEach((s, si) => {
       if (zombies.length > 0)
         s.target = zombies[Math.floor(Math.random() * zombies.length)];
     }
-  } else if (s.state === 'flying') {
+  }
+    else if (s.state === 'flying') {
     if (!s.target) return;
     const dx = s.target.x - s.x;
     const dy = s.target.y - s.y;
@@ -509,12 +745,9 @@ downwardSwords.forEach((s, si) => {
       downwardSwords.splice(si, 1);
       player.score++;
       dropItem(s.target.x, s.target.y);
-              explosions.push({ x: s.target.x, y: s.target.y, radius: 0, life: 20 }); // Va chạm với zombie
-
-    }
-  }
+      explosions.push({ x: s.target.x, y: s.target.y, radius: 0, life: 20 }); // Va chạm với zombie
+    }}
 });
-
 
   if (gameOver) return;
 
@@ -548,7 +781,6 @@ if (touchStartX !== null && touchMoveX !== null) {
   }
 }
 
-
 if (autoShoot && frame % 50 === 0 && player.level >= 1) shoot();
 
   // === Kỹ năng LỬA ===
@@ -558,13 +790,12 @@ if (autoShoot && frame % 50 === 0 && player.level >= 1) shoot();
     if (remaining > 0) {
       fireBtn.innerText = `🔥 ${remaining}s`;
     } else {
-      fireActive = false;
+fireActive = false;
+fireballs.forEach(f => releaseFireball(f));
 fireballs.length = 0;
 fireBtn.innerText = "🔥 Lửa";
 fireBtn.classList.remove("active");
-
-    }
-  }
+    }}
 
   // === Kỹ năng BĂNG ===
   if (iceActive) {
@@ -572,46 +803,21 @@ fireBtn.classList.remove("active");
     const iceBtn = document.getElementById("iceBtn");
     if (remaining > 0) {
       iceBtn.innerText = `❄️ ${remaining}s`;
-    } else {
-     iceActive = false;
+    } 
+else {
+iceActive = false;
+iceballs.forEach(i => releaseIceball(i));
 iceballs.length = 0;
 iceBtn.innerText = "❄️ Băng";
 iceBtn.classList.remove("active");
-    }
-  }
+}}
 
-bullets.forEach((b, i) => {
-  b.x += b.dx;
-  b.y += b.dy;
-  zombies.forEach((z, zi) => {
-    if (distance(b, z) < 20) {
-      
-      explosions.push({ x: z.x, y: z.y, radius: 0, life: 20 });
-
-      if (z.isBoss) {
-        z.hp--;
-        bullets.splice(i, 1);
-        if (z.hp <= 0) {
-          zombies.splice(zi, 1);
-          player.score += 5;
-          dropItem(z.x, z.y);
-        }
-      } else {
-        zombies.splice(zi, 1);
-        bullets.splice(i, 1);
-        player.score++;
-        dropItem(z.x, z.y);
-      }
-    }
-  });
-});
-
+updateBullets(); // gọi hàm đã viết sử dụng object pooling
 
   zombies.forEach((z, zi) => {
     const angle = Math.atan2(player.y - z.y, player.x - z.x);
 z.x += Math.cos(angle) * z.speed;
 z.y += Math.sin(angle) * z.speed;
-
     if (distance(z, player) < z.radius + player.size) {
   if (z.canHit) {
     player.hearts--;
@@ -635,115 +841,111 @@ z.y += Math.sin(angle) * z.speed;
   z.x += Math.cos(angle) * pushBack;
   z.y += Math.sin(angle) * pushBack;
 }
-
   });
 
-  // Lửa
-  fireballs.forEach(f => {
-    f.angle += 0.05;
-    f.x = player.x + Math.cos(f.angle) * f.radius;
-    f.y = player.y + Math.sin(f.angle) * f.radius;
-    zombies.forEach((z, zi) => {
-      if (distance(f, z) < 25) {
-        zombies.splice(zi, 1);
-        player.score++;
-        dropItem(z.x, z.y);
-          explosions.push({ x: z.x, y: z.y, radius: 0, life: 20 }); // va chạm với zombie
-
-      }
-    });
+  // 🔥 Lửa
+fireballs.forEach(f => {
+  f.angle += 0.05;
+  f.x = player.x + Math.cos(f.angle) * f.radius;
+  f.y = player.y + Math.sin(f.angle) * f.radius;
+  zombies.forEach(z => {
+    if (!z.active) return;
+    if (distance(f, z) < 25) {
+      releaseZombie(z);
+      player.score++;
+      dropItem(z.x, z.y);
+      explosions.push(getExplosion(z.x, z.y));
+    }
   });
+});
 
-  // Băng
-  iceballs.forEach(f => {
-    f.angle += 0.03;
-    f.x = player.x + Math.cos(f.angle) * f.radius;
-    f.y = player.y + Math.sin(f.angle) * f.radius;
-    zombies.forEach((z, zi) => {
-      if (distance(f, z) < 30) {
-        zombies.splice(zi, 1);
-        player.score++;
-        dropItem(z.x, z.y);
-          explosions.push({ x: z.x, y: z.y, radius: 0, life: 20 }); // Va chạm với zombie
-
-      }
-    });
+// ❄️ Băng
+iceballs.forEach(f => {
+  f.angle += 0.03;
+  f.x = player.x + Math.cos(f.angle) * f.radius;
+  f.y = player.y + Math.sin(f.angle) * f.radius;
+  zombies.forEach(z => {
+    if (!z.active) return;
+    if (distance(f, z) < 30) {
+      releaseZombie(z);
+      player.score++;
+      dropItem(z.x, z.y);
+      explosions.push(getExplosion(z.x, z.y));
+    }
   });
+});
 
-  // Kiếm xoay
-  swords.forEach((s, si) => {
+// 🔪 Kiếm xoay
+swords.forEach((s, si) => {
   if (s.state === "orbit") {
-  s.delay--;
-  s.angle += 0.1;
-  s.x = player.x + Math.cos(s.angle) * s.radius;
-  s.y = player.y + Math.sin(s.angle) * s.radius;
-
-  if (s.delay <= 0 && zombies.length > 0) {
-    s.target = zombies[Math.floor(Math.random() * zombies.length)];
-    s.state = "fly";
-  }
-}
-
-  else if (s.state === "fly") {
-    if (!s.target) return;
+    s.delay--;
+    s.angle += 0.1;
+    s.x = player.x + Math.cos(s.angle) * s.radius;
+    s.y = player.y + Math.sin(s.angle) * s.radius;
+    if (s.delay <= 0 && zombies.length > 0) {
+      s.target = zombies.find(z => z.active);
+      s.state = "fly";
+    }
+    zombies.forEach(z => {
+      if (!z.active) return;
+      if (distance(s, z) < 20) {
+        releaseZombie(z);
+        player.score++;
+        dropItem(z.x, z.y);
+        explosions.push(getExplosion(z.x, z.y));
+      }
+    });
+  } else if (s.state === "fly") {
+    if (!s.target || !s.target.active) return;
     const dx = s.target.x - s.x;
     const dy = s.target.y - s.y;
     const angle = Math.atan2(dy, dx);
     s.x += Math.cos(angle) * 4;
     s.y += Math.sin(angle) * 4;
-
     if (distance(s, s.target) < 25) {
-      const idx = zombies.indexOf(s.target);
-      if (idx !== -1) zombies.splice(idx, 1);
+      releaseZombie(s.target);
       swords.splice(si, 1);
       player.score++;
       dropItem(s.target.x, s.target.y);
-        explosions.push({ x: s.target.x, y: s.target.y, radius: 0, life: 20 }); // Va chạm với zombie
-
+      explosions.push(getExplosion(s.target.x, s.target.y));
     }
   }
 });
 
-
-
-
-  // Kiếm cắm
+ // ⚔️ Kiếm cắm
   downwardSwords.forEach((s, si) => {
-  if (s.state === 'waiting') {
-    s.delay--;
-    if (s.delay <= 0 && zombies.length > 0) {
-      s.target = zombies[Math.floor(Math.random() * zombies.length)];
-      s.state = 'fly';
-    }
-  } else if (s.state === 'fly') {
-    if (!s.target) return;
-    const dx = s.target.x - s.x;
-    const dy = s.target.y - s.y;
-    const angle = Math.atan2(dy, dx);
-    s.x += Math.cos(angle) * 6;
-    s.y += Math.sin(angle) * 6;
-    if (distance(s, s.target) < 25) {
-      const idx = zombies.indexOf(s.target);
-      if (idx !== -1) zombies.splice(idx, 1);
-      downwardSwords.splice(si, 1);
-      player.score++;
-      dropItem(s.target.x, s.target.y);
-        explosions.push({ x: s.target.x, y: s.target.y, radius: 0, life: 20 }); // Va chạm với zombie
-      
-    }
-  }
-});
-
-
-
-
-  // Nhặt item ⚡
-  items.forEach((it, ii) => {
-    if (distance(it, player) < 20) {
-      player.energy++;
-      items.splice(ii, 1);
+    if (s.state === 'waiting') {
+      s.delay--;
+      if (s.delay <= 0 && zombies.length > 0) {
+        s.target = zombies.find(z => z.active);
+        s.state = 'fly';
+      }
+    } else if (s.state === 'fly') {
+      if (!s.target || !s.target.active) return;
+      const dx = s.target.x - s.x;
+      const dy = s.target.y - s.y;
+      const angle = Math.atan2(dy, dx);
+      s.x += Math.cos(angle) * 6;
+      s.y += Math.sin(angle) * 6;
+      if (distance(s, s.target) < 25) {
+        releaseZombie(s.target);
+        downwardSwords.splice(si, 1);
+        player.score++;
+        dropItem(s.target.x, s.target.y);
+        explosions.push(getExplosion(s.target.x, s.target.y));
+      }
     }
   });
+
+  // Nhặt item ⚡
+  items.forEach(it => {
+  if (!it.active) return;
+  if (distance(it, player) < 20) {
+    player.energy += 50;
+    it.active = false;
+  }
+});
+items = items.filter(it => it.active);
 
 const requiredScore = player.level * 50; // Tăng level #Tăng cấp
 if (player.score >= requiredScore) {
@@ -752,7 +954,6 @@ if (player.score >= requiredScore) {
   player.energy += 2; // 🎁 thưởng 2 năng lượng khi lên cấp
 
   // ✨ Đổi nền theo level
-
 const levelBackgrounds = [
   "radial-gradient(circle at center, #2c3e50, #000000)",        // Lv1: Xanh đêm hiện đại
   "radial-gradient(circle at center, #4b79a1, #283e51)",         // Lv2: Xanh trời lạnh
@@ -775,53 +976,79 @@ if (player.level <= 11) {
 }
 canvas.style.background = bg;
 
-
-
   // 🪄 Hiển thị popup
   const popup = document.getElementById("levelUpPopup");
   popup.style.display = "block";
   setTimeout(() => {
     popup.style.display = "none";
   }, 2000);
-
   levelUpGlowTime = 120; // ~2s sáng vàng
 
   // 🎯 Mỗi 2 cấp gọi boss
-  if (player.level % 2 === 0) {
-    spawnBoss();
-  }
-}
-
-
-function spawnBoss() {
-  let x, y;
-  const side = Math.floor(Math.random() * 4);
-  if (side === 0) { x = -40; y = Math.random() * canvas.height; }
-  else if (side === 1) { x = canvas.width + 40; y = Math.random() * canvas.height; }
-  else if (side === 2) { x = Math.random() * canvas.width; y = -40; }
-  else { x = Math.random() * canvas.width; y = canvas.height + 40; }
-
-  const speed = 0.4 + Math.random(); // chậm hơn zombie thường
-zombies.push({ x, y, radius: 30, canHit: true, speed, isBoss: true, hp: 5 });
-}
-
-
-
-  explosions.forEach((e, i) => {
-  e.radius += 2;
-  e.life--;
-  if (e.life <= 0) explosions.splice(i, 1);
-});
+  if (player.level % 1 === 0) {
+spawnBoss();
+}}
+  updateExplosions(); // dùng object pooling thay splice
 
 if (levelUpGlowTime > 0) levelUpGlowTime--;
+
+// 🎯 Cập nhật bullets – dùng object pooling thay vì splice
+// 🎯 Cập nhật bullets – dùng object pooling thay vì splice
+function updateBullets() {
+  for (let i = 0; i < bullets.length; i++) {
+    const b = bullets[i];
+    if (!b.active) continue;
+
+    b.x += b.dx;
+    b.y += b.dy;
+
+    for (let j = 0; j < zombies.length; j++) {
+      const z = zombies[j];
+      if (distance(b, z) < 20) {
+        explosions.push(getExplosion(z.x, z.y));
+        releaseBullet(b);
+
+        if (z.isBoss) {
+          z.hp--;
+          if (z.hp <= 0) {
+            releaseZombie(z);
+            player.score += 5;
+            dropItem(z.x, z.y);
+          }
+        } else {
+          releaseZombie(z);
+          player.score++;
+          dropItem(z.x, z.y);
+        }
+        break;
+      }
+    }
+  }
+  bullets = bullets.filter(b => b.active);
+}
+
+// 💥 Cập nhật hiệu ứng nổ – thay thế splice bằng release
+function updateExplosions() {
+  explosions.forEach(e => {
+    if (!e.active) return;
+    e.radius += 2;
+    e.life--;
+    if (e.life <= 0) {
+      releaseExplosion(e);
+    }
+  });
+}
+
+zombies = zombies.filter(z => z.active);
+
   updateUI();
 }
 
+//🎨 9. Vẽ khung hình (draw canvas)
 function draw() {
   ctx.clearRect(0, 0, canvas.width, canvas.height);
-ctx.beginPath();
-ctx.arc(player.x, player.y, player.size, 0, Math.PI * 2);
-
+  ctx.beginPath();
+  ctx.arc(player.x, player.y, player.size, 0, Math.PI * 2);
 if (levelUpGlowTime > 0) {
   ctx.shadowBlur = 20;
   ctx.shadowColor = "gold";
@@ -837,18 +1064,16 @@ ctx.strokeStyle = "rgba(0, 255, 255, 0.4)"; // màu cyan nhạt
 ctx.shadowColor = "rgba(0, 255, 255, 0.25)"; // phát sáng nhẹ
 ctx.stroke();
 ctx.shadowBlur = 8; // reset lại luôn sau khi fill
-
-
-
-
   bullets.forEach(b => {
-    ctx.beginPath();
-    ctx.arc(b.x, b.y, 5, 0, Math.PI * 2);
-    ctx.fillStyle = "yellow";
-    ctx.fill();
-  });
+  if (!b.active) return; // 🛡 bỏ qua đạn đã bị gỡ
+  ctx.beginPath();
+  ctx.arc(b.x, b.y, 5, 0, Math.PI * 2);
+  ctx.fillStyle = "yellow";
+  ctx.fill();
+});
 
 zombies.forEach(z => {
+    if (!z.active) return;
 ctx.beginPath();
 ctx.arc(z.x, z.y, z.radius, 0, Math.PI * 2);
 ctx.fillStyle = z.isBoss ? "red" : (z.color || "hotpink");
@@ -865,24 +1090,18 @@ ctx.textBaseline = "middle";
 ctx.fillText(z.isBoss ? "💀" : "🧟", z.x, z.y);
 
   if (z.isBoss) {
-  ctx.fillStyle = "white";
-  ctx.font = "12px sans-serif";
-  ctx.fillText(`HP: ${z.hp}`, z.x - 14, z.y - z.radius - 5);
+ctx.save();
+ctx.textAlign = "center";
+ctx.textBaseline = "middle";
+ctx.fillStyle = "white";
+ctx.font = `${z.radius * 0.03}rem sans-serif`; // tỉ lệ hợp lý hơn
+ctx.fillText(`HP: ${z.hp}`, z.x, z.y - z.radius - z.radius * 0.3);
+ctx.restore();
 }
-
 });
 
+drawEffects(); //
 
-fireballs.forEach(f => {
-  ctx.save();
-  ctx.translate(f.x, f.y);
-  ctx.shadowBlur = 15;
-  ctx.shadowColor = "orange";
-  ctx.fillStyle = "orange";
-  ctx.font = "20px serif";
-  ctx.fillText("🔥", -10, 10);
-  ctx.restore();
-});
 // Mắt và miệng xoay theo hướng zombie gần nhất
 if (zombies.length > 0) {
   const target = zombies.reduce((a, b) => distance(a, player) < distance(b, player) ? a : b);
@@ -911,70 +1130,6 @@ if (zombies.length > 0) {
   ctx.stroke();
 }
 
-
-
-iceballs.forEach(f => {
-  ctx.save();
-  ctx.translate(f.x, f.y);
-  ctx.shadowBlur = 15;
-  ctx.shadowColor = "#00e5ff"; // xanh cyan lạnh
-  ctx.fillStyle = "#00e5ff";
-  ctx.font = "22px serif";
-  ctx.fillText("❄️", -10, 10);
-  ctx.restore();
-});
-
-
-
-swords.forEach(s => {
-  ctx.save();
-  ctx.translate(s.x, s.y);
-
-  if (s.state === 'charging') {
-    const glow = Math.sin(frame / 5) * 0.4 + 1.3;
-    ctx.scale(glow, glow);
-    ctx.globalAlpha = 1;
-    ctx.shadowBlur = 18;
-    ctx.shadowColor = '#00ffff';
-    ctx.fillStyle = '#00ffff';
-  } else {
-    ctx.globalAlpha = 1;
-    ctx.shadowBlur = 0;
-    ctx.fillStyle = 'white';
-  }
-
-  ctx.font = '20px serif';
-  ctx.fillText('🔪', -10, 10);
-  ctx.restore();
-});
-
-
-  downwardSwords.forEach(s => {
-  ctx.save();
-  ctx.translate(s.x, s.y);
-
-  if (s.state === 'charging') {
-    // Chớp chậm – tần suất thấp hơn và rõ ràng
-    const glow = 1 + 0.2 * Math.sin(frame / 20);
-    ctx.scale(glow, glow);
-    ctx.globalAlpha = 0.85 + 0.15 * Math.sin(frame / 30);
-    ctx.shadowBlur = 20;
-    ctx.shadowColor = 'gold';
-    ctx.fillStyle = 'gold';
-  } else {
-    ctx.globalAlpha = 1;
-    ctx.shadowBlur = 0;
-    ctx.fillStyle = 'white';
-  }
-
-  ctx.font = '22px serif';
-  ctx.fillText('⚔️', -10, 10);
-  ctx.restore();
-});
-
-
-
-
 explosions.forEach(e => {
   ctx.beginPath();
   ctx.arc(e.x, e.y, e.radius, 0, Math.PI * 2);
@@ -982,21 +1137,117 @@ explosions.forEach(e => {
   ctx.fill();
 });
 
-items.forEach(it => {
-  ctx.font = "0.65rem serif"; // nhỏ hơn mặc định
-  ctx.textAlign = "center";
-  ctx.textBaseline = "middle";
-  ctx.fillText("⚡", it.x, it.y);
-});
+drawItems();
 
+// 🎨 Vẽ vật phẩm energy ⚡
+function drawItems() {
+  items.forEach(it => {
+    if (!it.active) return;
+    ctx.save();
+    ctx.font = "0.8rem serif"; // Kích thước vật phẩm
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.shadowBlur = 10;
+    ctx.shadowColor = "gold";
+    ctx.fillStyle = "gold";
+    const bob = Math.sin(frame / 10 + it.x + it.y) * 2;
+    ctx.fillText("⚡", it.x, it.y + bob);
+    ctx.lineWidth = 1;
+    ctx.strokeStyle = "#000";
+    ctx.strokeText("⚡", it.x, it.y + bob);
+    ctx.restore();
+  });
+}
 }
 
-// CSS:
-const style = document.createElement('style');
-style.innerHTML = `.active { outline: 2px solid gold; border-radius: 8px; }`;
-document.head.appendChild(style);
+// 🎨 Vẽ tất cả hiệu ứng kỹ năng gọn lại
+function drawEffects() {
+  fireballs.forEach(f => {
+    ctx.save();
+    ctx.translate(f.x, f.y);
+    ctx.shadowBlur = 15;
+    ctx.shadowColor = "orange";
+    ctx.fillStyle = "orange";
+    ctx.font = "1.3rem serif";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText("🔥", 0, 0);
+    ctx.restore();
+  });
 
-// Nút chơi lại khi thua
+  iceballs.forEach(f => {
+    ctx.save();
+    ctx.translate(f.x, f.y);
+    ctx.shadowBlur = 15;
+    ctx.shadowColor = "#00e5ff";
+    ctx.fillStyle = "#00e5ff";
+    ctx.font = (f.radius * 0.9) + " serif";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText("❄️", 0, 0);
+    ctx.restore();
+  });
+
+  swords.forEach(s => {
+    ctx.save();
+    ctx.translate(s.x, s.y);
+    if (s.state === 'charging') {
+      const glow = Math.sin(frame / 5) * 0.4 + 1.3;
+      ctx.scale(glow, glow);
+      ctx.globalAlpha = 1;
+      ctx.shadowBlur = 18;
+      ctx.shadowColor = '#00ffff';
+      ctx.fillStyle = '#00ffff';
+    } else {
+      ctx.globalAlpha = 1;
+      ctx.shadowBlur = 0;
+      ctx.fillStyle = 'white';
+    }
+    ctx.font = (s.radius * 0.9) + " serif";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText("🔪", 0, 0);
+    ctx.restore();
+  });
+
+  downwardSwords.forEach(s => {
+    ctx.save();
+    ctx.translate(s.x, s.y);
+    if (s.state === 'charging') {
+      const glow = 1 + 0.2 * Math.sin(frame / 20);
+      ctx.scale(glow, glow);
+      ctx.globalAlpha = 0.85 + 0.15 * Math.sin(frame / 30);
+      ctx.shadowBlur = 20;
+      ctx.shadowColor = 'gold';
+      ctx.fillStyle = 'gold';
+    } else {
+      ctx.globalAlpha = 1;
+      ctx.shadowBlur = 0;
+      ctx.fillStyle = 'white';
+    }
+    ctx.font = '22px serif';
+    ctx.fillText('⚔️', -10, 10);
+    ctx.restore();
+  });
+}
+
+//🔁 10. Vòng lặp chính và khởi tạo game
+function loop() {
+update();
+draw();
+frame++;
+if (frame % 100 === 0) { // Tạo zombie
+  const count = Math.floor(Math.random() * 3) + 1; // 1 đến 3 zombie
+  for (let i = 0; i < count; i++) spawnZombie();}
+requestAnimationFrame(loop);}
+
+// ▶️ Khởi chạy ban đầu
+spawnZombie();
+loop();
+
+//🧼 11. Các đoạn khởi tạo UI sau canvas
+
+// Thêm panel "Game Over"
 const panel = document.createElement("div");
 panel.id = "gameOverPanel";
 panel.style = "position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);background:#222;padding:30px;color:white;display:none;flex-direction:column;align-items:center;border-radius:10px";
@@ -1010,102 +1261,8 @@ panel.innerHTML = `
   <button onclick='location.reload()' style='margin-top:10px;padding:10px 20px;'>Chơi lại</button>
 `;
 document.body.appendChild(panel);
-
-    function loop() {
-      update();
-      draw();
-      frame++;
-if (frame % 100 === 0) { // Tạo zombie
-  const count = Math.floor(Math.random() * 2) + 1; // 1 đến 2 zombie
-  for (let i = 0; i < count; i++) spawnZombie();
-}
-      requestAnimationFrame(loop);
-    }
-
-    document.getElementById("autoBtn").onclick = () => {
-  autoShoot = !autoShoot;
-  const btn = document.getElementById("autoBtn");
-  if (autoShoot) {
-    btn.classList.add("active");
-  } else {
-    btn.classList.remove("active");
-  }
-};
-
-
-    // === Cập nhật nút kích hoạt kỹ năng dùng thời gian thực ===
-document.getElementById("fireBtn").onclick = () => {
-  if (player.level < 5) {
-    showWarning("🔥 Cần Lv5 để dùng Lửa");
-    return;
-  }
-  if (!fireActive && player.energy >= 5) {
-    fireActive = true;
-    fireballs.length = 0;
-
-    const count = 3;
-    for (let i = 0; i < count; i++) {
-      const angle = (2 * Math.PI / count) * i;
-      fireballs.push({
-        angle,
-        radius: 40,
-        x: player.x + Math.cos(angle) * 40,
-        y: player.y + Math.sin(angle) * 40
-      });
-    }
-
-    fireEndTime = Date.now() + 30000;
-    player.energy -= 5;
-    const btn = document.getElementById("fireBtn");
-    btn.classList.add("active");
-  }
-};
-
-
-document.getElementById("iceBtn").onclick = () => {
-if (player.level < 10) return showWarning("❄️ Cần Lv10 để dùng Băng");
-if (!iceActive && player.energy >= 8) {
-    iceActive = true;
-    iceballs.length = 0;
-
-   const iceCount = 6; // ❄️ Số quả cầu băng — đổi số này là nâng cấp được
-for (let i = 0; i < iceCount; i++) {
-  const angle = (2 * Math.PI / iceCount) * i;
-  iceballs.push({
-    angle,
-    radius: 60,
-    x: player.x + Math.cos(angle) * 60,
-    y: player.y + Math.sin(angle) * 60
-  });
-}
-
-    iceEndTime = Date.now() + 30000;
-    player.energy -= 8;
-    const btn = document.getElementById("iceBtn");
-    btn.classList.add("active");
-  }
-};
-
-function generateGradient(index) {
-  const hue1 = (index * 137) % 360;
-  const hue2 = (hue1 + 60) % 360;
-  return `radial-gradient(circle at center, hsl(${hue1}, 70%, 50%), hsl(${hue2}, 40%, 20%))`;
-}
-
-document.getElementById("bladeBtn").onclick = () => {
-  if (player.level < 1) return showWarning("🔪 Cần Lv1 để dùng Đao");
-  activateSwordSkill();
-};
-
-document.getElementById("swordBtn").onclick = () => {
-  if (player.level < 3) return showWarning("⚔️ Cần Lv3 để dùng Kiếm");
-  activateDownwardSwords();
-};
-
-    spawnZombie();
-    loop();
-  </script>
-
+</script>
+<!-- 🌟 Popup khi lên cấp -->
   <div id="levelUpPopup" style="
   position:fixed;
   top:40%;
@@ -1118,6 +1275,5 @@ document.getElementById("swordBtn").onclick = () => {
   display:none;
   z-index:2000;
 ">Level Up!</div>
-
 </body>
 </html>
