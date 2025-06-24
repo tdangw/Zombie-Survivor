@@ -941,7 +941,7 @@ swords.forEach((s, si) => {
   items.forEach(it => {
   if (!it.active) return;
   if (distance(it, player) < 20) {
-    player.energy += 50;
+    player.energy += 1;
     it.active = false;
   }
 });
